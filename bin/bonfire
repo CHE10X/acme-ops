@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""
+Entrypoint for local Bonfire status command.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from bonfire.analyzer.spike_detector import detect_spikes
+from bonfire.analyzer.cost_estimator import print_cost
+from bonfire.analyzer.token_rollup import print_status
+from bonfire.budgets.budget_manager import get_budgets_snapshot
+from bonfire.collector.session_tracker import get_active_sessions
+from bonfire.risk.agent_risk_score import print_risk_summary
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Bonfire operator CLI")
+    parser.add_argument("command", nargs="?", default="status")
+    parser.add_argument("--hours", type=int, default=1)
+    parser.add_argument("--top-spikes", type=int, default=5)
+    parser.add_argument("--top", type=int, default=5)
+    args = parser.parse_args()
+
+    command = (args.command or "status").lower()
+    if command == "status":
+        detect_spikes()
+        print_status(last_hours=args.hours, top_spikes=args.top_spikes)
+        return 0
+
+    if command == "alerts":
+        path = Path.home() / ".openclaw" / "logs" / "bonfire_alerts.log"
+        if not path.exists():
+            print("No alerts yet.")
+            return 0
+        with path.open("r", encoding="utf-8") as fh:
+            rows = [raw.strip() for raw in fh if raw.strip()]
+        if not rows:
+            print("No alerts yet.")
+            return 0
+        for raw in rows[-args.top_spikes:]:
+            print(raw)
+        return 0
+
+    if command == "cost":
+        print_cost(hours=max(1, args.hours), top_n=max(1, args.top))
+        return 0
+
+    if command == "risk":
+        print_risk_summary(top_n=max(1, args.top))
+        return 0
+
+    if command == "forecast":
+        from bonfire.forecast.cost_forecaster import print_forecast
+
+        print_forecast()
+        return 0
+
+    if command == "efficiency":
+        from bonfire.forecast.cost_forecaster import print_efficiency
+
+        print_efficiency(hours=max(1, args.hours))
+        return 0
+
+    if command == "optimize":
+        from bonfire.optimizer.prompt_compressor import prompt_optimization_recommendations
+
+        print("Prompt optimization recommendations:")
+        for line in prompt_optimization_recommendations():
+            print(f"  - {line}")
+        return 0
+
+    if command == "budgets":
+        store, snapshot = get_budgets_snapshot()
+        print("Bonfire budgets snapshot")
+        print(f"Agents tracked: {len(snapshot.get('agents', {}))}")
+        agents_sorted = sorted(
+            snapshot.get("agents", {}).items(),
+            key=lambda kv: (kv[1].get("hourly", {}).get("used", 0) + kv[1].get("daily", {}).get("used", 0)),
+            reverse=True,
+        )
+        for agent, metrics in agents_sorted[: args.top]:
+            hourly = metrics.get("hourly", {})
+            daily = metrics.get("daily", {})
+            print(
+                f"  {agent}: hour {hourly.get('used',0)}/{hourly.get('limit',0)} "
+                f"day {daily.get('used',0)}/{daily.get('limit',0)}"
+            )
+        print("Lane budgets:")
+        for lane, metrics in snapshot.get("lanes", {}).items():
+            h = metrics.get("hourly", {})
+            d = metrics.get("daily", {})
+            print(f"  {lane}: hour {h.get('used',0)}/{h.get('limit',0)} day {d.get('used',0)}/{d.get('limit',0)}")
+        print("Configured limits:")
+        print(store.get("agent_limits", {}))
+        active_sessions = get_active_sessions()
+        print(f"Active sessions: {len(active_sessions)}")
+        return 0
+
+    print(f"Unknown command: {command}")
+    print("Supported: status, alerts, budgets, cost, risk, forecast, efficiency, optimize")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

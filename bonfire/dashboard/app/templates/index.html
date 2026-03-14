@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bonfire Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main>
+    <header class="top">
+      <h1>Bonfire Dashboard</h1>
+      <p>Local, file-backed operator view</p>
+      <div class="actions">
+        <button id="refreshBtn" type="button">Manual refresh</button>
+        <span id="refreshTime">refresh pending...</span>
+      </div>
+    </header>
+
+    <section id="stateBanner" class="banner unavailable">
+      Loading dashboard state...
+    </section>
+
+    <section class="grid">
+      <section id="overview" class="panel">
+        <h2>Overview</h2>
+        <div class="kv">
+          <div><span>Total tokens (1h)</span><strong id="oTokens1h">-</strong></div>
+          <div><span>Total tokens (24h)</span><strong id="oTokens24h">-</strong></div>
+          <div><span>Active sessions</span><strong id="oActive">-</strong></div>
+          <div><span>Cost today</span><strong id="oCost">-</strong></div>
+          <div><span>Top risk agent</span><strong id="oRisk">-</strong></div>
+          <div><span>Latest alert</span><strong id="oAlert">-</strong></div>
+        </div>
+      </section>
+      <section id="runaway" class="panel full">
+        <h2>Runaway Agent Detector</h2>
+        <div id="runawayMessage" class="message"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>agent_id</th><th>risk_score</th><th>risk_level</th><th>recent_tokens</th><th>alerts_last_hour</th><th>latest_alert</th>
+            </tr>
+          </thead>
+          <tbody id="runawayRows"></tbody>
+        </table>
+      </section>
+      <section id="burnrate" class="panel full">
+        <h2>Token Burn Rate</h2>
+        <div id="burnrateMessage" class="message"></div>
+        <canvas id="burnRateCanvas" width="980" height="220"></canvas>
+      </section>
+      <section id="heatmap" class="panel full">
+        <h2>Agent Token Heatmap</h2>
+        <div id="heatmapMessage" class="message"></div>
+        <table id="heatmapTable">
+          <thead>
+            <tr id="heatmapHeaderRow"></tr>
+          </thead>
+          <tbody id="heatmapRows"></tbody>
+        </table>
+      </section>
+      <section id="agents" class="panel full">
+        <h2>Agents</h2>
+        <div id="agentsMessage" class="message"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>agent_id</th><th>hourly_tokens</th><th>predicted_tokens</th>
+              <th>risk_score</th><th>risk_level</th><th>efficiency</th>
+              <th>dominant_model</th><th>alerts_count</th>
+            </tr>
+          </thead>
+          <tbody id="agentsRows"></tbody>
+        </table>
+      </section>
+      <section id="modelEfficiency" class="panel full">
+        <h2>Model Efficiency Comparison</h2>
+        <div id="modelEfficiencyMessage" class="message"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>model</th><th>events_count</th><th>total_tokens</th><th>avg_tokens_per_event</th><th>efficiency_ratio</th><th>avg_latency_ms</th><th>cost_total</th>
+            </tr>
+          </thead>
+          <tbody id="modelEfficiencyRows"></tbody>
+        </table>
+      </section>
+      <section id="economics" class="panel full">
+        <h2>Economics</h2>
+        <div id="economicsMessage" class="message"></div>
+        <div class="kv">
+          <div><span>Token efficiency index</span><strong id="eEfficiency">-</strong></div>
+          <div><span>Total tokens</span><strong id="eTokens">-</strong></div>
+          <div><span>Total cost</span><strong id="eCost">-</strong></div>
+          <div><span>Data generated</span><strong id="eGenerated">-</strong></div>
+        </div>
+        <h3>Cost by agent</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>agent_id</th><th>token_total</th><th>cost_total</th>
+              <th>cost_per_task</th><th>efficiency_index</th>
+            </tr>
+          </thead>
+          <tbody id="econAgentRows"></tbody>
+        </table>
+        <h3>Model usage &amp; cost</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>model</th><th>token_total</th><th>cost_total</th>
+            </tr>
+          </thead>
+          <tbody id="econModelRows"></tbody>
+        </table>
+      </section>
+      <section id="costAnomalies" class="panel full">
+        <h2>Cost Anomaly Detector</h2>
+        <div id="costAnomaliesMessage" class="message"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>timestamp</th><th>scope</th><th>entity</th><th>baseline_cost</th><th>observed_cost</th><th>delta_percent</th><th>severity</th><th>reason</th>
+            </tr>
+          </thead>
+          <tbody id="costAnomalyRows"></tbody>
+        </table>
+      </section>
+      <section id="loops" class="panel full">
+        <h2>Reasoning Loop Detector</h2>
+        <div id="loopsMessage" class="message"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>agent_id</th><th>session_id</th><th>event_count</th><th>time_window_minutes</th><th>loop_score</th><th>reason_signals</th><th>latest_timestamp</th>
+            </tr>
+          </thead>
+          <tbody id="loopRows"></tbody>
+        </table>
+      </section>
+      <section id="modelTimeline" class="panel full">
+        <h2>Model Downgrade Timeline</h2>
+        <div id="modelTimelineMessage" class="message"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>timestamp</th><th>agent</th><th>original_model</th><th>new_model</th><th>reason</th>
+            </tr>
+          </thead>
+          <tbody id="modelTimelineRows"></tbody>
+        </table>
+      </section>
+      <section id="alerts" class="panel full">
+        <h2>Alerts</h2>
+        <div id="alertsMessage" class="message"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>timestamp</th><th>severity</th><th>message</th><th>agent</th>
+            </tr>
+          </thead>
+          <tbody id="alertRows"></tbody>
+        </table>
+      </section>
+    </section>
+    <section class="panel">
+      <h2>Legend</h2>
+      <ul class="legend">
+        <li><span class="dot state-healthy"></span>healthy</li>
+        <li><span class="dot state-caution"></span>caution</li>
+        <li><span class="dot state-high"></span>high</li>
+        <li><span class="dot state-runaway"></span>runaway</li>
+        <li><span class="dot state-unavailable"></span>unavailable</li>
+        <li><span class="dot heat-none"></span>none</li>
+        <li><span class="dot state-low"></span>low</li>
+        <li><span class="dot state-moderate"></span>moderate</li>
+        <li><span class="dot state-critical"></span>critical</li>
+      </ul>
+    </section>
+  </main>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

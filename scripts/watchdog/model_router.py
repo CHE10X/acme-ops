@@ -29,6 +29,30 @@ import uuid
 from datetime import datetime, timedelta
 
 
+# Ensure the Bonfire package at repo root is importable when running this file directly.
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+
+try:
+    from bonfire.collector.session_tracker import get_or_start_session
+    from bonfire.collector.token_hook import record_route_event
+    from bonfire.governor.token_governor import apply_mitigation, on_request_complete, preflight as run_governance_preflight
+    from bonfire.optimizer.prompt_compressor import compress_prompt
+    from bonfire.predictor.token_predictor import estimate_tokens
+    from bonfire.router.adaptive_router import choose_model
+    from bonfire.router.model_router import route as run_bonfire_model_route
+except Exception:
+    get_or_start_session = None
+    record_route_event = None
+    apply_mitigation = None
+    on_request_complete = None
+    run_governance_preflight = None
+    compress_prompt = None
+    estimate_tokens = None
+    choose_model = None
+    run_bonfire_model_route = None
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 WATCHDOG_DIR     = os.path.expanduser("~/.openclaw/watchdog")
 STALL_LOG        = os.path.join(WATCHDOG_DIR, "stall.log")
@@ -69,6 +93,14 @@ COST_PER_1K = {
 
 def ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        n = int(value)
+        return n if n >= 0 else default
+    except Exception:
+        return default
 
 
 def emit(line, log_file=None):
@@ -293,6 +325,24 @@ def _parse_provider_model(ref):
     return {"provider": "unknown", "model": ref}
 
 
+def _adapt_model_for_provider(provider: str, requested_model: str) -> str:
+    provider = (provider or "").lower()
+    req = (requested_model or "").lower()
+    if "claude" in req:
+        return "claude-sonnet-4-6" if provider == "anthropic" else req
+    if req in ("gpt4", "gpt-4", "gpt-4.1-mini", "gpt4-mini", "gpt-4o", "gpt-4o-mini"):
+        return "gpt-4.1-mini" if provider == "openai" else req
+    if "kimi" in req:
+        if provider == "openrouter":
+            return "kimi-k2"
+        if provider == "openai":
+            return "gpt-4.1-mini"
+        if provider == "google":
+            return "gemini-2.5-flash-lite"
+        return req
+    return requested_model or req
+
+
 _POLICY_CACHE = {}          # {cfg_path: (mtime, {lane: policy})}
 _POLICY_CACHE_TTL_S = 60   # re-read config at most once per minute
 
@@ -459,6 +509,8 @@ def route(
     mock_fns=None,
     lane=None,
     allow_premium=False,
+    agent_id=None,
+    session_id=None,
 ):
     """
     Route prompt through provider chain with hard timeout + sequential failover.
@@ -470,11 +522,33 @@ def route(
       mock_fns: {provider: callable(prompt, cancel_event) -> (text, usage)}
 
     Returns dict: {text, provider, model, dur_ms, status, req_id}
+      Additional optional telemetry input:
+      agent_id: logical agent id for Bonfire attribution
+      session_id: optional Bonfire session id
     tokens.log: one line per attempt (status=FAIL or status=OK)
     """
+    if agent_id is None:
+        agent_id = os.environ.get("OPENCLAW_AGENT_ID", "unknown")
+
+    if get_or_start_session is not None:
+        try:
+            session_id = get_or_start_session(agent_id, session_id=session_id)
+        except Exception:
+            session_id = session_id or "unknown"
+    else:
+        session_id = session_id or "unknown"
+
     # ── Lane resolution ──────────────────────────────────────────────────────
     if lane is None:
         lane = os.environ.get("OPENCLAW_LANE", "interactive")
+    requested_lane = lane
+    requested_model = None
+    if isinstance(chain, list) and chain:
+        first_ref = chain[0]
+        if isinstance(first_ref, dict):
+            requested_model = first_ref.get("model")
+        elif isinstance(first_ref, str):
+            requested_model = first_ref
 
     # ── Chain selection ──────────────────────────────────────────────────────
     chain_source = "caller"
@@ -483,9 +557,172 @@ def route(
             chain, chain_source = load_background_chain()
         else:
             chain, chain_source = load_chain_from_config()
+    else:
+        # normalize to dict entries
+        chain = [_parse_provider_model(item) for item in chain]
 
+    prompt_text = str(prompt or "")
+    prompt_hint = prompt_text
     if req_id is None:
         req_id = uuid.uuid4().hex[:8]
+
+    if chain and requested_model is None:
+        requested_model = chain[0].get("model")
+
+    if compress_prompt is not None:
+        try:
+            compressed = compress_prompt(prompt_text)
+            prompt_hint = compressed.get("prompt", prompt_text)
+            if compressed.get("compressed"):
+                emit(
+                    f"[{ts()}] BONFIRE_PROMPT_COMPRESS req={req_id}"
+                    f" ratio={compressed.get('compression_ratio', 1.0):.2f}",
+                    log_file,
+                )
+        except Exception:
+            prompt_hint = prompt_text
+
+    bonfire_governed = False
+    predicted_tokens = None
+    if run_bonfire_model_route is not None:
+        try:
+            decision = run_bonfire_model_route(
+                {
+                    "agent_id": agent_id,
+                    "session_id": session_id,
+                    "prompt": prompt_hint,
+                    "lane": lane,
+                    "requested_model": requested_model or "claude-sonnet",
+                }
+            )
+            bonfire_governed = True
+            predicted_tokens = _safe_int(decision.get("predicted_total_tokens"), None)
+            route_model = decision.get("selected_model")
+            lane = str(decision.get("selected_lane", lane))
+            emit(
+                f"[{ts()}] BONFIRE_V3_ROUTE req={req_id} agent={agent_id} "
+                f"model={route_model or 'none'} lane={lane} action={decision.get('governor_action')}",
+                log_file,
+            )
+
+            if decision.get("governor_action") in ("reject", "terminate"):
+                if record_route_event is not None:
+                    record_route_event(
+                        agent_id=agent_id,
+                        session_id=session_id,
+                        model=requested_model or route_model or "unknown",
+                        prompt=prompt_hint,
+                        completion="",
+                        usage={"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
+                        latency_ms=0,
+                        tool_used="model_router",
+                        status="failure",
+                        started_at_ms=int(time.time() * 1000),
+                        lane=lane,
+                        session_runway=decision.get("governor_status", "governance"),
+                        predicted_tokens=predicted_tokens,
+                    )
+                return {
+                    "text": None,
+                    "status": decision.get("governor_status", "TOKEN_BUDGET_EXCEEDED"),
+                    "req_id": req_id,
+                    "governance": decision,
+                }
+
+            if lane != requested_lane:
+                if lane == "background":
+                    chain, chain_source = load_background_chain()
+                else:
+                    chain, chain_source = load_chain_from_config()
+
+            if route_model:
+                requested_model = str(route_model)
+                for entry in chain:
+                    entry["model"] = _adapt_model_for_provider(entry["provider"], route_model)
+        except Exception:
+            bonfire_governed = False
+            emit(f"[{ts()}] BONFIRE_V3_ROUTE_FAILOPEN req={req_id}", log_file)
+
+    if not bonfire_governed:
+        if estimate_tokens is not None:
+            try:
+                predicted = estimate_tokens(
+                    prompt_hint,
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    model=requested_model or "claude-sonnet",
+                    lane=lane,
+                )
+                predicted_tokens = _safe_int(predicted.get("total_tokens"))
+            except Exception:
+                predicted_tokens = None
+
+        if choose_model is not None and predicted_tokens is not None and requested_model is not None:
+            try:
+                adaptive_model, adaptive_mode = choose_model(
+                    requested_model=requested_model,
+                    lane=lane,
+                    predicted_tokens=predicted_tokens,
+                    prompt=prompt_hint,
+                )
+                emit(f"[{ts()}] BONFIRE_ADAPTIVE_ROUTE req={req_id} mode={adaptive_mode} model={adaptive_model}", log_file)
+                requested_model = adaptive_model
+            except Exception:
+                pass
+
+        # ── Governance preflight (v2) ────────────────────────────────────────────
+        if run_governance_preflight is not None:
+            try:
+                decision = run_governance_preflight(
+                    agent_id=agent_id,
+                    lane=lane,
+                    model=requested_model or "claude-sonnet",
+                    prompt=prompt_hint,
+                    session_id=session_id,
+                    predicted_tokens=predicted_tokens,
+                )
+                if apply_mitigation is not None:
+                    decision = apply_mitigation(agent_id, decision, prompt_hint, requested_model or "claude-sonnet")
+                lane = str(decision.get("final_lane", decision.get("lane", lane)))
+                route_model = str(decision.get("route_model", requested_model or "claude-sonnet"))
+
+                if decision.get("action") in ("reject", "terminate"):
+                    if record_route_event is not None:
+                        record_route_event(
+                            agent_id=agent_id,
+                            session_id=session_id,
+                            model=requested_model or route_model,
+                            prompt=prompt_hint,
+                            completion="",
+                            usage={"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
+                            latency_ms=0,
+                            tool_used="model_router",
+                            status="failure",
+                            started_at_ms=int(time.time() * 1000),
+                            lane=lane,
+                            session_runway="governance",
+                            predicted_tokens=predicted_tokens,
+                        )
+                    return {
+                        "text": None,
+                        "status": decision.get("status", "TOKEN_BUDGET_EXCEEDED"),
+                        "req_id": req_id,
+                        "governance": decision,
+                    }
+
+                # Rebuild chain from active lane when governance moved us away from user lane.
+                if lane != requested_lane:
+                    if lane == "background":
+                        chain, chain_source = load_background_chain()
+                    else:
+                        chain, chain_source = load_chain_from_config()
+
+                if route_model:
+                    for entry in chain:
+                        entry["model"] = _adapt_model_for_provider(entry["provider"], route_model)
+            except Exception:
+                # Governance is fail-open.
+                pass
 
     # ── SphinxGate policy enforcement (config-driven, no hardcoding) ─────────
     policy = load_sphinxgate_policy(lane)
@@ -509,6 +746,22 @@ def route(
                 f"[{ts()}] SPHINXGATE_POLICY_HARD_FAIL lane={lane} req={req_id}",
                 log_file,
             )
+            if record_route_event is not None:
+                record_route_event(
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    model="none",
+                    prompt=prompt_hint,
+                    completion="",
+                    usage={"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
+                    latency_ms=0,
+                    tool_used="model_router",
+                    status="failure",
+                    started_at_ms=int(time.time() * 1000),
+                    lane=lane,
+                    session_runway="sphinxgate_fail",
+                    predicted_tokens=predicted_tokens,
+                )
             return {"text": None, "status": "POLICY_FAIL", "req_id": req_id}
 
     chain_str = " -> ".join(f"{e['provider']}/{e['model']}" for e in chain)
@@ -544,7 +797,7 @@ def route(
             mock = mock_fns[provider]
             def _worker(_m=mock, _ce=cancel_event):
                 try:
-                    result_box[0] = _m(prompt, _ce)
+                    result_box[0] = _m(prompt_hint, _ce)
                 except Exception as exc:
                     error_box[0] = exc
         else:
@@ -556,7 +809,7 @@ def route(
                     caller = _REAL_CALLERS.get(_p)
                     if caller is None:
                         raise ProviderError(f"Unsupported provider: {_p}")
-                    result_box[0] = caller(prompt, _mo, key, _ts)
+                    result_box[0] = caller(prompt_hint, _mo, key, _ts)
                 except (TimeoutAbort, ProviderError) as exc:
                     error_box[0] = exc
                 except Exception as exc:
@@ -586,6 +839,22 @@ def route(
             )
             _log_tokens(req_id, lane, provider, model,
                         {"input": -1, "output": -1, "total": -1}, "FAIL", dur_ms)
+            if record_route_event is not None:
+                record_route_event(
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    model=model,
+                    prompt=prompt_hint,
+                    completion="",
+                    usage={"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
+                    latency_ms=dur_ms,
+                    tool_used="model_router",
+                    status="failure",
+                    started_at_ms=int(start_s * 1000),
+                    lane=lane,
+                    session_runway="provider_timeout",
+                    predicted_tokens=predicted_tokens,
+                )
             if i + 1 < len(chain):
                 nxt = chain[i + 1]
                 emit(
@@ -608,6 +877,22 @@ def route(
             )
             _log_tokens(req_id, lane, provider, model,
                         {"input": -1, "output": -1, "total": -1}, "FAIL", dur_ms)
+            if record_route_event is not None:
+                record_route_event(
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    model=model,
+                    prompt=prompt_hint,
+                    completion="",
+                    usage={"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
+                    latency_ms=dur_ms,
+                    tool_used="model_router",
+                    status="failure",
+                    started_at_ms=int(start_s * 1000),
+                    lane=lane,
+                    session_runway="provider_error",
+                    predicted_tokens=predicted_tokens,
+                )
             if i + 1 < len(chain):
                 nxt = chain[i + 1]
                 emit(
@@ -634,6 +919,35 @@ def route(
 
         _log_tokens(req_id, lane, provider, model, usage, ok_status, dur_ms)
         save_model_state(provider, ok_status.lower())
+        if record_route_event is not None:
+            route_status = "success" if ok_status in ("OK", "OK_FAILOVER") else "failure"
+            record_route_event(
+                agent_id=agent_id,
+                session_id=session_id,
+                model=model,
+                prompt=prompt_hint,
+                completion=text,
+                usage={
+                    "prompt_tokens": usage.get("input", -1),
+                    "completion_tokens": usage.get("output", -1),
+                    "total_tokens": usage.get("total", usage.get("input", -1) + usage.get("output", -1)),
+                },
+                latency_ms=dur_ms,
+                tool_used="model_router",
+                status=route_status,
+                started_at_ms=int(start_s * 1000),
+                lane=lane,
+                session_runway="complete",
+                predicted_tokens=predicted_tokens,
+            )
+        if on_request_complete is not None:
+            on_request_complete(
+                agent_id=agent_id,
+                lane=lane,
+                model=model,
+                session_id=session_id,
+                tokens=usage.get("total", usage.get("input", 0) + usage.get("output", 0)),
+            )
 
         return {
             "text":     text,
@@ -648,6 +962,22 @@ def route(
     # ── Exhausted ─────────────────────────────────────────────────────────────
     emit(f"[{ts()}] MODEL_FAILOVER_EXHAUSTED req={req_id}", log_file)
     save_model_state("none", "failover_exhausted")
+    if record_route_event is not None:
+        record_route_event(
+            agent_id=agent_id,
+            session_id=session_id,
+            model="none",
+            prompt=prompt_hint,
+            completion="",
+            usage={"prompt_tokens": -1, "completion_tokens": -1, "total_tokens": -1},
+            latency_ms=0,
+            tool_used="model_router",
+            status="failure",
+            started_at_ms=int(time.time() * 1000),
+            lane=lane,
+            session_runway="route_exhausted",
+            predicted_tokens=predicted_tokens,
+        )
     return {"text": None, "status": "EXHAUSTED", "req_id": req_id}
 
 

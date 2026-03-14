@@ -1,0 +1,61 @@
+{
+  "agent_limits": {
+    "heike": {
+      "hourly_tokens": 20000,
+      "daily_tokens": 120000,
+      "hourly_cost_limit_usd": 3.0
+    },
+    "hendrik": {
+      "hourly_tokens": 30000,
+      "daily_tokens": 200000,
+      "hourly_cost_limit_usd": 8.0
+    },
+    "watchdog": {
+      "hourly_tokens": 50000,
+      "daily_tokens": 300000,
+      "hourly_cost_limit_usd": 10.0
+    }
+  },
+  "defaults": {
+    "agent": {
+      "hourly_tokens": 12000,
+      "daily_tokens": 80000,
+      "hourly_cost_limit_usd": 3.0
+    }
+  },
+  "lane_limits": {
+    "interactive": {
+      "hourly_tokens": 50000,
+      "daily_tokens": 0
+    },
+    "background": {
+      "hourly_tokens": 20000,
+      "daily_tokens": 0
+    },
+    "system": {
+      "hourly_tokens": 0,
+      "daily_tokens": 0
+    }
+  },
+  "model_limits": {
+    "gpt4": {
+      "hourly_tokens": 50000
+    },
+    "claude-sonnet": {
+      "hourly_tokens": 60000
+    },
+    "kimi": {
+      "hourly_tokens": 30000
+    }
+  },
+  "alerts": {
+    "agent_hourly_budget_pct": 80,
+    "session_tokens": 20000,
+    "agent_token_growth_per_min": 8000,
+    "requests_per_minute": 120,
+    "tool_loop_count_per_min": 20,
+    "session_duration_limit_s": 14400,
+    "runaway_cooldown_seconds": 60,
+    "hourly_cost_usd": 12
+  }
+}
