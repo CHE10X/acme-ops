@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# recall — Acme Agent Supply intervention and recovery CLI
+# https://acmeagentsupply.com
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd)"
+exec python3 "${SCRIPT_DIR}/recall_runtime.py" "$@"

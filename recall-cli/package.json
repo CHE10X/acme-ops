@@ -1,11 +1,22 @@
 {
-  "name": "recall-cli",
+  "name": "@acme/recall",
   "version": "1.0.0",
+  "description": "Acme Agent Supply — manual intervention and recovery CLI for OpenClaw agent fleets",
   "type": "module",
-  "main": "index.js",
-  "openclaw": {
-    "extensions": [
-      "./index.js"
-    ]
+  "bin": {
+    "recall": "./bin/recall"
+  },
+  "scripts": {
+    "test": "bash tests/test_recall_cli.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "Acme Agent Supply <support@acmeagentsupply.com>",
+  "license": "UNLICENSED",
+  "homepage": "https://acmeagentsupply.com",
+  "repository": {
+    "type": "git",
+    "url": "private"
   }
 }
