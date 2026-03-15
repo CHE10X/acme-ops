@@ -42,5 +42,18 @@ cd openclaw-ops
 - `gmail-v3.3` Gmail integration update
 - `dr-v2.0` DR/Recovery update
 
+## Recall CLI
+
+- New command surface: `openclaw recall`
+- Runtime state: `~/.openclaw/runtime/recall/agent_state.json`
+- Lockdown flag: `~/.openclaw/runtime/lockdown`
+- Intervention log: `~/.openclaw/logs/recall_interventions.jsonl`
+- Key commands:
+  - `openclaw recall lockdown` / `openclaw recall unlock`
+  - `openclaw recall stall|sleep|freeze|stun|quarantine|wake|recover`
+  - `openclaw recall focus <agent>` / `openclaw recall unfocus`
+  - `openclaw recall reset`
+- Each operation appends a control-plane event and writes incident-environment entries where applicable.
+
 ## Recent release notes
 - Watchdog v1.1 (2026-03-03): hygiene guard folded into owned Watchdog capability, `restore_staging` governance added, Sentinel disk pressure surfaced, OCTriage footprint capture added. Canonical note: [`docs/releases/watchdog-v1.1-release-notes.md`](./docs/releases/watchdog-v1.1-release-notes.md)

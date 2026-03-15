@@ -1,0 +1,13 @@
+{
+  "id": "recall-cli",
+  "name": "Recall CLI",
+  "version": "1.0.0",
+  "description": "Manual intervention and recovery surface: openclaw recall.",
+  "author": "ARCH/OPS",
+  "main": "index.js",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
