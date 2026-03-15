@@ -491,7 +491,7 @@ def cmd_wake(args: argparse.Namespace) -> int:
 
     failed: List[str] = []
     for aid in target_agents:
-        rc = _unstall(aid, state, channel_only=args.channel, allow_stunned=True)
+        rc = cmd_unstall(aid, state, channel_only=args.channel, allow_stunned=True)
         if rc:
             failed.append(aid)
             continue
@@ -1078,7 +1078,6 @@ def _gateway_probe() -> bool:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="recall")
-    parser.add_argument("command", nargs="?")
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 
