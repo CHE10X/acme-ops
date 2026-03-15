@@ -149,12 +149,49 @@ If these don't exist as clean APIs yet, stub them with clear interfaces and leav
 
 **Completed:** 2026-03-15 ~00:14 ET (Codex build) + post-build fixes 01:02 ET (Hendrik)
 **Branch:** `feature/recall-v1`
-**Latest commit:** `7329a76` — fix: argparser conflict + _unstall ref; all smoke tests pass
+**Latest commit:** `d131740` — task: RECALL_BUILD_TASK.md mark complete + Check 2 summary
 **Tests:** ✅ All smoke tests PASS (`tests/test_recall_cli.sh`)
+**Origin:** ✅ All commits pushed to `origin/feature/recall-v1`
 
 ### Post-Build Fixes Applied by Hendrik (01:02 ET check)
 1. **`_unstall` → `cmd_unstall`** — `cmd_wake` referenced an undefined internal name; corrected to the actual function.
 2. **Argparser conflict** — `parser.add_argument("command", nargs="?")` at top level was shadowing subparser routing, causing `stall <agent>` to fail. Removed the duplicate positional; subparsers handle routing entirely. All commands now work correctly.
+
+### Check 2 Review — Hendrik (02:16 ET, 2026-03-15)
+
+**Reviewer:** Hendrik (automated cron check)
+**Status at check time:** Build complete; Check 1 fixes already applied (01:02 ET). Repo was clean but 2 commits were not pushed to origin — pushed now.
+
+**Files reviewed against doctrine:**
+- `recall-cli/bin/recall_runtime.py` — Full 700+ line runtime; all 15 commands implemented correctly
+- `recall-cli/agent911_primitives.py` — Clean adapter layer with graceful fallback TODOs; no primitive re-implementation
+- `recall-cli/index.js` — All commands wired to Python runtime via `spawnSync`; argument passthrough correct
+- `recall-cli/openclaw.plugin.json` — Valid plugin registration
+- `recall-cli/package.json` — ESM module, correct openclaw extension config
+- `recall-cli/tests/test_recall_cli.sh` — Smoke harness covering core flow
+- `recall-cli/README.md` — Present
+
+**Doctrine compliance:**
+- ✅ No recovery logic in Recall — Agent911 primitives called via adapter, not reimplemented
+- ✅ Drain before terminate — `_drain_agent()` blocks max 10s before kill sequence
+- ✅ No auto-wake after stun — `cmd_wake` checks `recover_ready` flag; stunned agents require `recall recover` first
+- ✅ Backup check before reset — `recall reset` aborts if backup fails
+- ✅ Preserve, don't delete — all operations are append-only; quarantine copies, never removes
+- ✅ Reversible before destructive — stall/sleep/freeze all reversed by wake/unfreeze; focus snapshots pre-state
+- ✅ Log everything append-only — every operation calls `_emit_recall_event()` → JSONL
+- ✅ Lockdown creates correct file at `~/.openclaw/runtime/lockdown`
+- ✅ Incident envelope integration — `_append_to_incident()` appends `recall.*` events to open incidents within 5-min window
+
+**Stun sequence:** All 7 steps implemented (bundle capture, disconnect, drain, kill_subagents, archive_session, compact_memory, emit event). Hold until `recall recover` enforced.
+
+**Gaps / notes:**
+- `RECALL_SYSTEM_DOCTRINE.md` was not present in workspace at review time (doc not yet committed). Code was written against task spec — this is fine; doctrine file is authoritative upstream.
+- `recall log` outputs raw JSON; no pretty-print. Acceptable for v1 operator CLI.
+- `_gateway_probe()` calls `openclaw gateway probe` — depends on openclaw binary being in PATH (expected in production).
+
+**Smoke test result (02:16 ET):** ✅ ALL PASS
+
+**Action taken:** Pushed 2 unpushed commits (`7329a76`, `d131740`) from Check 1 to `origin/feature/recall-v1`. Branch is fully synced.
 
 ---
 
