@@ -145,25 +145,38 @@ If these don't exist as clean APIs yet, stub them with clear interfaces and leav
 
 ---
 
+## STATUS — COMPLETE ✅
+
+**Completed:** 2026-03-15 ~00:14 ET (Codex build) + post-build fixes 01:02 ET (Hendrik)
+**Branch:** `feature/recall-v1`
+**Latest commit:** `7329a76` — fix: argparser conflict + _unstall ref; all smoke tests pass
+**Tests:** ✅ All smoke tests PASS (`tests/test_recall_cli.sh`)
+
+### Post-Build Fixes Applied by Hendrik (01:02 ET check)
+1. **`_unstall` → `cmd_unstall`** — `cmd_wake` referenced an undefined internal name; corrected to the actual function.
+2. **Argparser conflict** — `parser.add_argument("command", nargs="?")` at top level was shadowing subparser routing, causing `stall <agent>` to fail. Removed the duplicate positional; subparsers handle routing entirely. All commands now work correctly.
+
+---
+
 ## ACCEPTANCE CRITERIA
 
-- [ ] `recall lockdown` creates `~/.openclaw/runtime/lockdown` and emits event
-- [ ] `recall unlock` removes it and emits event
-- [ ] `recall status` shows all agent states + lockdown status
-- [ ] `recall stall heike` pauses heike, emits event, shows confirmation
-- [ ] `recall stall --all` pauses all agents
-- [ ] `recall wake heike` restores heike from stall
-- [ ] `recall freeze soren` sets spawn-blocked flag for soren
-- [ ] `recall focus hendrik` stalls all agents except hendrik
-- [ ] `recall unfocus` restores all agents to pre-focus state
-- [ ] `recall stun heike` runs the 7-step stun sequence
-- [ ] `recall stun heike --capture-bundle` triggers OCTriage bundle first
-- [ ] `recall recover heike` runs 5-step recovery wizard
-- [ ] `recall reset` runs full safe gateway restart sequence
-- [ ] All operations write to `~/.openclaw/logs/recall_interventions.jsonl`
-- [ ] `recall log` displays formatted intervention history
-- [ ] Plugin registers under `openclaw recall`
-- [ ] Reversibility table implemented (all operations have defined reversal)
+- [x] `recall lockdown` creates `~/.openclaw/runtime/lockdown` and emits event
+- [x] `recall unlock` removes it and emits event
+- [x] `recall status` shows all agent states + lockdown status
+- [x] `recall stall heike` pauses heike, emits event, shows confirmation
+- [x] `recall stall --all` pauses all agents
+- [x] `recall wake heike` restores heike from stall
+- [x] `recall freeze soren` sets spawn-blocked flag for soren
+- [x] `recall focus hendrik` stalls all agents except hendrik
+- [x] `recall unfocus` restores all agents to pre-focus state
+- [x] `recall stun heike` runs the 7-step stun sequence
+- [x] `recall stun heike --capture-bundle` triggers OCTriage bundle first
+- [x] `recall recover heike` runs 5-step recovery wizard
+- [x] `recall reset` runs full safe gateway restart sequence
+- [x] All operations write to `~/.openclaw/logs/recall_interventions.jsonl`
+- [x] `recall log` displays formatted intervention history
+- [x] Plugin registers under `openclaw recall`
+- [x] Reversibility table implemented (all operations have defined reversal)
 
 ---
 
