@@ -18,5 +18,5 @@
 **Overall: PASS**
 
 **Findings requiring fix before activation:**
-- **Gate 2 FAIL:** `--version` not wired. Returns operation JSON instead. Fix: add argparse `--version` that prints `Transmission 2.0.0` and exits.
+- **Gate 2:** Fixed 2026-03-18. `transmission_router.py --version` → `Transmission 2.0.0`.
 - **Gate 1 WARN:** No install path or documented customer invocation for v2. Acme site lists Transmission as "coming soon" — acceptable for now.
