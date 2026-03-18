@@ -7,6 +7,9 @@ All mutations are intentionally append-only and reversible where possible.
 
 from __future__ import annotations
 
+__version__ = "1.0.0"
+VERSION = __version__
+
 import argparse
 import json
 import os
@@ -1078,6 +1081,7 @@ def _gateway_probe() -> bool:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="recall")
+    parser.add_argument("--version", "-v", action="version", version=f"Recall {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", required=False)
 

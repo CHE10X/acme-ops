@@ -21,6 +21,9 @@ Never writes to ~/.openclaw/openclaw.json.
 Redaction is ON by default.
 """
 
+__version__ = "1.0.0"
+VERSION = __version__
+
 import argparse
 import hashlib
 import json

@@ -1,0 +1,33 @@
+{
+  "_comment": "Quartermaster configuration. Adjust thresholds to match your team's rhythm.",
+
+  "stale_task_hours": 4,
+  "alert_chip_hours": 6,
+  "nudge_cooldown_hours": 4,
+  "max_nudges_per_task": 3,
+  "audit_retention_days": 90,
+
+  "agents": {
+    "_comment": "List your agent IDs here. Used for INBOX routing.",
+    "list": ["agent-1", "agent-2"]
+  },
+
+  "project_gate": {
+    "enabled": true,
+    "_comment": "Work types that require a project code before proceeding.",
+    "require_project_for": [
+      "code_change",
+      "doctrine_edit",
+      "agent_config_change",
+      "new_cron",
+      "process_doc_edit"
+    ],
+    "exempt": [
+      "memory_flush",
+      "inbox_nudge",
+      "team_board_render",
+      "read_only_research",
+      "single_commit_hotfix"
+    ]
+  }
+}
