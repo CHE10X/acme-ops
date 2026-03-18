@@ -11,11 +11,11 @@
 | 2 Version | WARN | No `--version` CLI flag. VERSION in install.sh and VERSION file only. Not surfaced at runtime. |
 | 3 Happy Path | PASS | `sentinel_attach_bridge.py` → structured JSON + REB emit (`source=sentinel event=attach_bridge`). `sentinel_funnel_alignment.py` → ALIGNMENT_OK + REB emit (`source=sentinel event=funnel_alignment`). Both exit 0. |
 | 4 Failure Path | PASS | Bad args → argparse error, clean failure, no stack trace. |
-| 5 License Gate | FAIL | No license enforcement. Pre-existing gap. |
+| 5 License Gate | PASS | Hard-block via acme_license.py. Exit 2 on missing/expired/invalid license. Clear operator message. |
 | 6 Regression | PASS | 12/12 regression suite passing. |
 | 7 Docs | WARN | Mintlify page at `/docs/products/sentinel/overview` — not re-verified post REB changes. |
 
-**Overall: FAIL (Gate 5 only)**
+**Overall: PASS**
 
 **Post PROJ-2026-008 changes:**
 - REB emit added to `sentinel_attach_bridge.py`: emits `attach_bridge` event (INFO or HIGH based on confidence)

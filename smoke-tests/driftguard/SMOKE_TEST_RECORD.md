@@ -21,11 +21,11 @@ Delivered as bash script + launchd plist:
 | 2 Version | PASS | Output strings updated: "INFRAWATCH: OK / DEGRADED / DRIFT DETECTED". Rename confirmed in code. |
 | 3 Happy Path | PASS | `--mode audit` runs, detects drift state, emits REB event (`source=infrawatch event=config_drift severity=HIGH`). Exit code correct per drift level. |
 | 4 Failure Path | PASS | Bad args → argparse error. Clean failure. |
-| 5 License Gate | FAIL | No license enforcement. Pre-existing gap — same as Sentinel/Watchdog/Lazarus. |
+| 5 License Gate | PASS | Hard-block via acme_license.py. Exit 2 on missing/expired/invalid license. Clear operator message. |
 | 6 Regression | PASS | 12/12 regression suite passing. |
 | 7 Docs | PASS | Mintlify page updated by Soren. Stripe SKU updated to InfraWatch (2026-03-18, Soren). |
 
-**Overall: FAIL (Gate 5 only)**
+**Overall: PASS**
 
 **Post PROJ-2026-008 changes:**
 - Renamed DriftGuard → InfraWatch in script output strings and product docs

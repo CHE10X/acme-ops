@@ -11,11 +11,11 @@
 | 2 Version | WARN | No `--version` flag. VERSION file has 1.0.0, not surfaced at runtime. |
 | 3 Happy Path | PASS | Script runs, acquires lockfile, runs loop. GATEWAY_STALL → `reb_emit "watchdog" "gateway_stall" "HIGH"`. Kickstart → `reb_emit "watchdog" "gateway_kickstart" "INFO"`. |
 | 4 Failure Path | PASS | Lockfile prevents concurrent runs. Graceful exit on conflict. |
-| 5 License Gate | FAIL | No license enforcement. Pre-existing gap. |
+| 5 License Gate | PASS | Hard-block via acme_license.py. Exit 2 on missing/expired/invalid license. Clear operator message. |
 | 6 Regression | PASS | 12/12 regression suite passing. |
 | 7 Docs | WARN | Mintlify page at `/docs/products/watchdog/overview` — not re-verified post REB changes. |
 
-**Overall: FAIL (Gate 5 only)**
+**Overall: PASS**
 
 **Post PROJ-2026-008 changes:**
 - `reb_emit` bash helper added to script
