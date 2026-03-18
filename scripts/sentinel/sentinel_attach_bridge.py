@@ -35,6 +35,16 @@ except ImportError:
     _REB_AVAILABLE = False
     def _reb_emit(*a, **kw): pass
 
+# License gate
+try:
+    from acme_license import check_license as _check_license
+    _license = _check_license(required_feature="sentinel")
+    if not _license.valid:
+        print(f"[ACME LICENSE] ❌ {_license.message}", file=sys.stderr)
+        sys.exit(2)
+except ImportError:
+    pass  # License verifier not installed — skip check
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------

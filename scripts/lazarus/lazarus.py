@@ -44,6 +44,16 @@ if str(REPO_ROOT) not in sys.path:
 
 from resilience.reb import reb_emit, reb_tail
 
+# License gate
+try:
+    from acme_license import check_license as _check_license
+    _lic = _check_license(required_feature="lazarus")
+    if not _lic.valid:
+        print(f"[ACME LICENSE] ❌ {_lic.message}", file=sys.stderr)
+        sys.exit(2)
+except ImportError:
+    pass  # License verifier not installed — skip check
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 VERSION       = "1.0.0"
 HOME          = Path.home()

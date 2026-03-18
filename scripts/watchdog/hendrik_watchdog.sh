@@ -21,6 +21,16 @@ trap 'rm -f "$_LOCK_FILE" "$_LOCK_PID"' EXIT INT TERM
 
 echo "HB $(date '+%Y-%m-%d %H:%M:%S %Z') watchdog run user=$(whoami) uid=$UID host=$(hostname)" >> /Users/AGENT/.openclaw/watchdog/heartbeat.log
 
+# License gate
+if command -v python3 >/dev/null 2>&1; then
+  _LIC_CHECK=$(python3 "$(cd "$(dirname "$0")/../.." && pwd)/acme_license.py" --feature watchdog 2>&1)
+  _LIC_EXIT=$?
+  if [ $_LIC_EXIT -ne 0 ]; then
+    echo "[ACME LICENSE] ❌ $_LIC_CHECK" >&2
+    exit 2
+  fi
+fi
+
 # --- Configuration ---
 WATCHDOG_LABEL="ai.openclaw.gateway"
 WATCHDOG_PORT="18789"

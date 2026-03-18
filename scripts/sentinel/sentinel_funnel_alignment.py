@@ -256,6 +256,16 @@ if __name__ == "__main__":
     import time
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+    # License gate
+    try:
+        from acme_license import check_license as _check_license
+        _lic = _check_license(required_feature="sentinel")
+        if not _lic.valid:
+            print(f"[ACME LICENSE] ❌ {_lic.message}", file=sys.stderr)
+            sys.exit(2)
+    except ImportError:
+        pass
     try:
         from resilience.reb import reb_emit as _reb_emit
     except ImportError:
