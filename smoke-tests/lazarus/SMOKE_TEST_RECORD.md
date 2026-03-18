@@ -1,23 +1,25 @@
 # Smoke Test Record — Lazarus
 
 **Version:** 1.0.0
-**Date:** 2026-03-18
+**Date:** 2026-03-18 (updated post PROJ-2026-008)
 **Tester:** Hendrik Homarus
-**Commit:** 8548ffb
+**Commit:** 498820d
 
 | Gate | Result | Notes |
 |------|--------|-------|
-| 1 Install | WARN | Script at `acme-ops/scripts/lazarus/lazarus.py`. Not installed to PATH. Customer must invoke via `python3 path/to/lazarus.py`. No install script. |
-| 2 Version | FAIL | `lazarus.py --version` → `unrecognized arguments: --version`. `__version__ = "1.0.0"` exists in source but argparse does not expose `--version` flag. |
-| 3 Happy Path | PASS | `lazarus.py --mode scan` runs recovery readiness scan. Structured output with `LAZARUS PROTOCOL v1 — RECOVERY READINESS SCAN`. Exit 0. |
-| 4 Failure Path | PASS | `lazarus.py --badarg` → argparse error with usage block. No stack trace. Clean failure. |
-| 5 License Gate | FAIL | No license enforcement. Lazarus runs without any license check. Pre-identified gap. |
-| 6 Regression | WARN | No dedicated lazarus regression harness. Not in daily suite. |
-| 7 Docs | WARN | Mintlify page at `/docs/quickstart/5-minute` (bundled with quickstart, per fulfillmentLinks). Product-specific docs page not confirmed. |
+| 1 Install | WARN | Script at `acme-ops/scripts/lazarus/lazarus.py`. Not in PATH. Customer invokes via `python3`. No install script. |
+| 2 Version | FAIL | `--version` not wired. `__version__ = "1.0.0"` in source, not exposed via argparse. Pre-existing gap. |
+| 3 Happy Path | PASS | `--mode scan` runs readiness scan. `--mode watch` now available — subscribes to REB HIGH/CRITICAL events, triggers scan+plan, emits `readiness_complete`. All existing modes unchanged. |
+| 4 Failure Path | PASS | `--mode badmode` → argparse error with valid choices listed (scan, plan, generate, validate, watch, all). Clean failure. |
+| 5 License Gate | FAIL | No license enforcement. Pre-existing gap. |
+| 6 Regression | PASS | 12/12 regression suite passing. |
+| 7 Docs | WARN | Mintlify page not verified post REB changes. `--mode watch` not documented yet — Soren to update. |
 
-**Overall: FAIL**
+**Overall: FAIL (Gates 2 + 5)**
 
-**Findings requiring fix before activation:**
-- **Gate 2 FAIL:** Add `--version` to lazarus.py argparse. Wire to `__version__`. Format: `Lazarus 1.0.0`.
-- **Gate 5 FAIL:** License gate not wired. Known pre-sprint gap.
-- **Gate 1 WARN:** No install script. Documented `python3` invocation path needed.
+**Post PROJ-2026-008 changes:**
+- `--mode watch` added: polls REB every 10s, triggers on HIGH/CRITICAL (hardcoded v1)
+- Emits `readiness_scan_start` (INFO) at start of triggered scan
+- Emits `readiness_complete` (INFO if lz_score ≥ 70, HIGH if < 70) with blueprint path + trigger source
+- Mirrors blueprint to `~/.openclaw/lazarus/recovery_blueprint.json` for Agent911 compatibility
+- Existing modes (scan/plan/generate/validate/all) unchanged

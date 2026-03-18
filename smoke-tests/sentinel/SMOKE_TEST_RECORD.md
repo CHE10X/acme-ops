@@ -1,22 +1,23 @@
 # Smoke Test Record — Sentinel
 
 **Version:** 1.0.0
-**Date:** 2026-03-18
+**Date:** 2026-03-18 (updated post PROJ-2026-008)
 **Tester:** Hendrik Homarus
-**Commit:** 8548ffb
+**Commit:** 498820d
 
 | Gate | Result | Notes |
 |------|--------|-------|
-| 1 Install | PASS | `acme-ops/scripts/sentinel/install.sh` exists with VERSION="1.0.0". Install script present and structured. |
-| 2 Version | WARN | No `--version` CLI flag. Version only in `install.sh` as `VERSION="1.0.0"` and `acme-ops/scripts/sentinel/VERSION` file. Not surfaced at runtime. |
-| 3 Happy Path | PASS | `sentinel_attach_bridge.py` returns structured JSON output (confidence, severity, reasons). `sentinel_funnel_alignment.py` returns `ALIGNMENT_OK` with elapsed ms and state. Both exit 0. |
-| 4 Failure Path | PASS | Bad args → `argparse` error. No stack trace to operator. Clean failure. |
-| 5 License Gate | FAIL | No license enforcement wired. Sentinel runs without any license check. Pre-identified gap in sprint brief. |
-| 6 Regression | PASS | `sentinel_attach_bridge` and `sentinel_funnel_alignment` proofs pass. |
-| 7 Docs | WARN | Mintlify page at `/docs/products/sentinel/overview` — not verified this sprint. |
+| 1 Install | PASS | `acme-ops/scripts/sentinel/install.sh` present. Install script structured with VERSION="1.0.0". |
+| 2 Version | WARN | No `--version` CLI flag. VERSION in install.sh and VERSION file only. Not surfaced at runtime. |
+| 3 Happy Path | PASS | `sentinel_attach_bridge.py` → structured JSON + REB emit (`source=sentinel event=attach_bridge`). `sentinel_funnel_alignment.py` → ALIGNMENT_OK + REB emit (`source=sentinel event=funnel_alignment`). Both exit 0. |
+| 4 Failure Path | PASS | Bad args → argparse error, clean failure, no stack trace. |
+| 5 License Gate | FAIL | No license enforcement. Pre-existing gap. |
+| 6 Regression | PASS | 12/12 regression suite passing. |
+| 7 Docs | WARN | Mintlify page at `/docs/products/sentinel/overview` — not re-verified post REB changes. |
 
-**Overall: FAIL**
+**Overall: FAIL (Gate 5 only)**
 
-**Findings requiring fix before activation:**
-- **Gate 5 FAIL:** License gate not wired. This is a known pre-sprint gap — must be resolved before customer activation.
-- **Gate 2 WARN:** Add `--version` to runtime scripts. Not blocking but required by doctrine.
+**Post PROJ-2026-008 changes:**
+- REB emit added to `sentinel_attach_bridge.py`: emits `attach_bridge` event (INFO or HIGH based on confidence)
+- REB emit added to `sentinel_funnel_alignment.py`: emits `funnel_alignment` event (INFO/WARN/HIGH based on alignment state)
+- Graceful fallback: if reb.py unavailable, emit is silently skipped — Sentinel never fails due to REB
