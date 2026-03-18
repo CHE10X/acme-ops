@@ -8,14 +8,14 @@
 | Gate | Result | Notes |
 |------|--------|-------|
 | 1 Install | WARN | Script at `acme-ops/scripts/lazarus/lazarus.py`. Not in PATH. Customer invokes via `python3`. No install script. |
-| 2 Version | FAIL | `--version` not wired. `__version__ = "1.0.0"` in source, not exposed via argparse. Pre-existing gap. |
+| 2 Version | PASS | `lazarus.py --version` → `Lazarus 1.0.0` ✅ |
 | 3 Happy Path | PASS | `--mode scan` runs readiness scan. `--mode watch` now available — subscribes to REB HIGH/CRITICAL events, triggers scan+plan, emits `readiness_complete`. All existing modes unchanged. |
 | 4 Failure Path | PASS | `--mode badmode` → argparse error with valid choices listed (scan, plan, generate, validate, watch, all). Clean failure. |
 | 5 License Gate | PASS | Hard-block via acme_license.py. Exit 2 on missing/expired/invalid license. Clear operator message. |
 | 6 Regression | PASS | 12/12 regression suite passing. |
 | 7 Docs | WARN | Mintlify page not verified post REB changes. `--mode watch` not documented yet — Soren to update. |
 
-**Overall: FAIL (Gate 2 only — pre-existing)**
+**Overall: PASS**
 
 **Post PROJ-2026-008 changes:**
 - `--mode watch` added: polls REB every 10s, triggers on HIGH/CRITICAL (hardcoded v1)
