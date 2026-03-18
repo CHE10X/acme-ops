@@ -12,14 +12,35 @@ Zero writes to openclaw.json. Read-only. Deterministic. Observable.
 Target: p95 routing latency < 10ms (heuristic path).
 """
 
+__version__ = "2.0.0"
+VERSION = __version__
+
 import json
 import os
+import sys
 import time
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+# ---------------------------------------------------------------------------
+# Bonfire governor integration (fail-open)
+# ---------------------------------------------------------------------------
+_BONFIRE_AVAILABLE = False
+_bonfire_preflight = None
+_bonfire_record_route = None
+
+try:
+    _BONFIRE_ROOT = Path(__file__).parent.parent.parent / "bonfire"
+    if str(_BONFIRE_ROOT.parent) not in sys.path:
+        sys.path.insert(0, str(_BONFIRE_ROOT.parent))
+    from bonfire.governor.token_governor import preflight as _bonfire_preflight  # type: ignore
+    from bonfire.collector.token_hook import record_route_decision as _bonfire_record_route  # type: ignore
+    _BONFIRE_AVAILABLE = True
+except Exception:
+    pass  # Bonfire unavailable — fail-open, routing continues normally
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -524,6 +545,28 @@ def route_with_transmission(
     req_id = req_id or f"tr-{uuid.uuid4().hex[:8]}"
     _log = Path(log_path) if log_path else DEFAULT_LOG_PATH
 
+    # --- Bonfire governor preflight (fail-open, only when agent_id known) ---
+    _governor_action = "allow"
+    _governor_status = "ALLOW"
+    _governor_downgrade_model: Optional[str] = None
+    if _BONFIRE_AVAILABLE and _bonfire_preflight is not None and agent_id and agent_id != "unknown":
+        try:
+            _pf = _bonfire_preflight(
+                agent_id=agent_id or "unknown",
+                lane=lane or "interactive",
+                model="",  # model not yet selected; governor enforces lane policy
+                prompt=prompt or "",
+                session_id=req_id,
+            )
+            _governor_action = _pf.get("action", "allow")
+            _governor_status = _pf.get("status", "ALLOW")
+            # Only apply lane changes when we have a real agent_id
+            # Unknown agents fall back to interactive — don't override caller's lane
+            if agent_id and agent_id != "unknown" and _pf.get("lane") and _pf["lane"] != lane:
+                lane = _pf["lane"]
+        except Exception:
+            pass  # Preflight failure — fail-open, continue routing
+
     cfg = _load_config(Path(config_path) if config_path else None)
     models: dict = cfg.get("models", {})
     work_classes: list[str] = cfg.get("work_classes", list(WORK_CLASS_PATTERNS.keys()))
@@ -673,7 +716,7 @@ def route_with_transmission(
         ops_path=_ops_path,
     )
 
-    return {
+    result = {
         "model": selected_model,
         "provider": model_cfg.get("provider", ""),
         "candidate_chain": policy_chain,
@@ -686,7 +729,29 @@ def route_with_transmission(
         "req_id": req_id,
         "policy_active": policy_applied,
         "recovery_context": recovery_context,
+        "governor_action": _governor_action,
+        "governor_status": _governor_status,
     }
+
+    # --- Bonfire telemetry emission (fail-open) ---
+    if _BONFIRE_AVAILABLE and _bonfire_record_route is not None:
+        try:
+            _bonfire_record_route(
+                agent_id=agent_id or "unknown",
+                session_id=req_id,
+                requested_model="",
+                selected_model=selected_model,
+                selected_lane=lane,
+                decision_ms=duration_ms,
+                governor_action=_governor_action,
+                governor_status=_governor_status,
+                status="ok",
+                model_tier=gear,
+            )
+        except Exception:
+            pass  # Telemetry failure — fail-open, result already computed
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +760,9 @@ def route_with_transmission(
 
 if __name__ == "__main__":
     import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--version":
+        print(f"Transmission {__version__}")
+        sys.exit(0)
     prompt = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "write some python code"
     result = route_with_transmission(prompt)
     print(json.dumps(result, indent=2))
