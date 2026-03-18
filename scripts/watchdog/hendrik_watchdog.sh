@@ -94,11 +94,23 @@ fi
 # --- Task C: GATEWAY_STALL detector ---
 # port up + probe fail = frozen agent loop (not a crash)
 OPS_EVENTS_LOG="$STATE_DIR/ops_events.log"
+
+# REB emit helper — writes to resilience event bus
+reb_emit() {
+  local source="$1" event_type="$2" severity="$3" payload="$4"
+  local reb_dir="$HOME/.openclaw/resilience"
+  local reb_file="$reb_dir/resilience_events.jsonl"
+  mkdir -p "$reb_dir"
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  echo "{\"ts\":\"$ts\",\"source\":\"$source\",\"event_type\":\"$event_type\",\"severity\":\"$severity\",\"payload\":$payload}" >> "$reb_file"
+}
 touch "$OPS_EVENTS_LOG"
 if [ "$LISTENING" = "yes" ] && [ "$PROBE_OK" = "no" ]; then
   _STALL_LOAD=$(python3 -c "import os; a=os.getloadavg(); print(f'{a[0]:.2f},{a[1]:.2f},{a[2]:.2f}')" 2>/dev/null || echo "unknown")
   _STALL_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   echo "{\"ts\":\"$_STALL_TS\",\"event\":\"GATEWAY_STALL\",\"port\":\"up\",\"probe\":\"timeout\",\"load\":\"$_STALL_LOAD\",\"action\":\"pending_debounce\",\"req\":\"watchdog\"}" >> "$OPS_EVENTS_LOG"
+  reb_emit "watchdog" "gateway_stall" "HIGH" "{\"port\":\"up\",\"probe\":\"timeout\",\"load\":\"$_STALL_LOAD\",\"action\":\"pending_debounce\"}"
   log "GATEWAY_STALL detected: port=up probe=fail load=$_STALL_LOAD"
 fi
 
@@ -123,6 +135,7 @@ if [ "$LISTENING" != "yes" ] || [ "$PROBE_OK" = "no" ]; then
     if [ "$LISTENING" = "yes" ] && [ "$PROBE_OK" = "no" ]; then
       _STALL_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       echo "{\"ts\":\"$_STALL_TS\",\"event\":\"GATEWAY_STALL\",\"port\":\"up\",\"probe\":\"timeout\",\"load\":\"$_STALL_LOAD\",\"action\":\"kickstart\",\"req\":\"watchdog\"}" >> "$OPS_EVENTS_LOG"
+      reb_emit "watchdog" "gateway_kickstart" "INFO" "{\"port\":\"up\",\"probe\":\"timeout\",\"load\":\"$_STALL_LOAD\",\"action\":\"kickstart\"}"
     fi
     echo "0" > "$PROBE_DEBOUNCE_FILE"
 

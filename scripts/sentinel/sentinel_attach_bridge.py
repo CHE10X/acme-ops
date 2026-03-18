@@ -21,8 +21,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+# REB integration
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+try:
+    from resilience.reb import reb_emit as _reb_emit
+    _REB_AVAILABLE = True
+except ImportError:
+    _REB_AVAILABLE = False
+    def _reb_emit(*a, **kw): pass
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -319,5 +330,13 @@ if __name__ == "__main__":
     if "--emit" in sys.argv:
         ok = emit_recommendation_event(rec, OPS_F)
         print(f"\nEmit: {'OK' if ok else 'FAILED'}")
+
+    # REB emit
+    severity = "HIGH" if rec.get("confidence", 0) >= 70 and rec.get("recommended") else "INFO"
+    _reb_emit("sentinel", "attach_bridge", severity, {
+        "recommended": rec.get("recommended"),
+        "confidence": rec.get("confidence"),
+        "severity": rec.get("severity"),
+    })
 
     sys.exit(0)

@@ -254,6 +254,12 @@ def gather_alignment(
 if __name__ == "__main__":
     import sys
     import time
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    try:
+        from resilience.reb import reb_emit as _reb_emit
+    except ImportError:
+        def _reb_emit(*a, **kw): pass
 
     t0 = time.monotonic()
     al = gather_alignment()
@@ -265,5 +271,14 @@ if __name__ == "__main__":
     print("\n--- Dashboard block ---")
     for line in render_alignment_block(al):
         print(line)
+
+    # REB emit
+    state = al.get("alignment_state", "DRIFT")
+    severity = "HIGH" if state == "DRIFT" else "WARN" if state != "CONSISTENT" else "INFO"
+    _reb_emit("sentinel", "funnel_alignment", severity, {
+        "alignment_state": state,
+        "confidence": al.get("confidence"),
+        "elapsed_ms": elapsed,
+    })
 
     sys.exit(0)
