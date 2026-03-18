@@ -44,6 +44,11 @@ if str(REPO_ROOT) not in sys.path:
 
 from resilience.reb import reb_emit, reb_tail
 
+# --version check before license gate
+if "--version" in sys.argv:
+    print(f"Lazarus {VERSION}")
+    sys.exit(0)
+
 # License gate
 try:
     from acme_license import check_license as _check_license
@@ -1039,6 +1044,7 @@ def run_watch() -> None:
 # ─── Main ──────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Lazarus Protocol v1")
+    parser.add_argument("--version", action="version", version=f"Lazarus {VERSION}")
     parser.add_argument("--mode", choices=["scan","plan","generate","validate","watch","all"],
                         default="all", help="Execution mode")
     parser.add_argument("--archive", help="Archive path for validate mode")

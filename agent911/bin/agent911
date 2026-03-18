@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+__version__ = "2.0.0"
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LEGACY_REPO_ROOT = Path("/Users/AGENT/.openclaw/workspace/openclaw-ops")
 for candidate in (REPO_ROOT, LEGACY_REPO_ROOT):
@@ -259,6 +261,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("command", nargs="?")
     parser.add_argument("plan_path", nargs="?")
+    parser.add_argument("--version", action="version", version=f"Agent911 {__version__}")
     args = parser.parse_args()
 
     command = (args.command or "").strip().lower()
