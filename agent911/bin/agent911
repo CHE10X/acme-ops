@@ -11,11 +11,16 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
-REPO_ROOT = Path("/Users/AGENT/.openclaw/workspace/openclaw-ops")
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LEGACY_REPO_ROOT = Path("/Users/AGENT/.openclaw/workspace/openclaw-ops")
+for candidate in (REPO_ROOT, LEGACY_REPO_ROOT):
+    if candidate.exists() and str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 
 from agent911.planner.recovery_planner import build_plan, diagnose, save_plan
 from agent911.recovery.reconstruct_execute import execute_reconstruction_plan, load_reconstruction_plan
@@ -24,6 +29,9 @@ from agent911.recovery.restore_execute import run_restore_approve, run_restore_d
 from agent911.recovery.rollback_engine import execute_rollback, load_latest_execution_record
 from agent911.recovery.state_reconstruction import run_reconstruct_diagnose, run_reconstruct_plan
 from agent911.system.rebuild import ensure_layout
+from resilience.reb import reb_emit, reb_tail
+
+LAZARUS_BLUEPRINT = Path.home() / ".openclaw" / "lazarus" / "recovery_blueprint.json"
 
 
 def _print_help() -> None:
@@ -193,6 +201,60 @@ def _render_reconstruct_rollback(summary: dict) -> str:
     return "\n".join(lines)
 
 
+def _parse_event_ts(raw: str) -> Optional[datetime]:
+    if not raw:
+        return None
+    ts = raw.strip()
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _emit_agent_event(event_type: str, severity: str, payload: dict) -> None:
+    try:
+        reb_emit("agent911", event_type, severity, payload)
+    except Exception:
+        # REB failures must never block recovery paths.
+        return
+
+
+def check_lazarus_readiness(timeout_s: int = 60) -> dict | None:
+    deadline = time.time() + max(timeout_s, 0)
+    while True:
+        now = datetime.now(timezone.utc)
+        try:
+            events = reb_tail()
+        except Exception:
+            events = []
+
+        recent: list[tuple[datetime, dict]] = []
+        for event in events:
+            if event.get("event_type") != "readiness_complete":
+                continue
+            if event.get("source") != "lazarus":
+                continue
+            event_ts = _parse_event_ts(str(event.get("ts", "")))
+            if not event_ts:
+                continue
+            age_s = (now - event_ts).total_seconds()
+            if 0 <= age_s <= 300:
+                recent.append((event_ts, event))
+
+        if recent:
+            recent.sort(key=lambda item: item[0], reverse=True)
+            return recent[0][1]
+
+        if time.time() >= deadline:
+            return None
+        time.sleep(min(5, max(0, deadline - time.time())))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("command", nargs="?")
@@ -251,12 +313,51 @@ def main() -> int:
         return 0
 
     if command == "reconstruct-execute":
+        readiness_event = check_lazarus_readiness(timeout_s=60)
+        if readiness_event:
+            print("Lazarus readiness precondition met: recent readiness_complete event found.")
+            if LAZARUS_BLUEPRINT.exists():
+                print(f"Lazarus blueprint available: {LAZARUS_BLUEPRINT}")
+            else:
+                print(f"WARN: readiness_complete found, but blueprint missing at {LAZARUS_BLUEPRINT}. Proceeding best-effort.")
+        else:
+            print("WARN: No recent Lazarus readiness_complete within 60s polling window. Proceeding with best-effort recovery.")
         try:
             plan = load_reconstruction_plan(plan_path=args.plan_path)
+            _emit_agent_event(
+                "recovery_start",
+                "INFO",
+                {
+                    "command": "reconstruct-execute",
+                    "plan_path": args.plan_path or "latest",
+                    "readiness_event_ts": readiness_event.get("ts") if readiness_event else None,
+                    "readiness_present": bool(readiness_event),
+                },
+            )
             summary = execute_reconstruction_plan(plan)
+            summary_status = str(summary.get("status", "unknown"))
+            _emit_agent_event(
+                "recovery_complete",
+                "INFO" if summary_status == "success" else "HIGH",
+                {
+                    "command": "reconstruct-execute",
+                    "status": summary_status,
+                    "plan_id": summary.get("plan_id"),
+                    "selected_checkpoint": summary.get("selected_checkpoint"),
+                },
+            )
             print(_render_reconstruct_execute(summary))
             return 0 if summary.get("status") == "success" else 1
         except Exception as exc:
+            _emit_agent_event(
+                "recovery_complete",
+                "HIGH",
+                {
+                    "command": "reconstruct-execute",
+                    "status": "failed",
+                    "error": str(exc),
+                },
+            )
             print("Agent911 Reconstruct Execute")
             print("")
             print(f"status: failed ({exc})")

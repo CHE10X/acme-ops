@@ -9,6 +9,7 @@ Modes:
     --mode plan       Build recovery_blueprint.json from scan
     --mode generate   Write artifact scripts from blueprint
     --mode validate   Dry-run restore + integrity checks
+    --mode watch      Subscribe to REB and trigger scan/plan on HIGH/CRITICAL events
     --mode all        Full pipeline (default)
 
 Exit codes:
@@ -37,6 +38,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from resilience.reb import reb_emit, reb_tail
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 VERSION       = "1.0.0"
 HOME          = Path.home()
@@ -44,12 +51,14 @@ OC_DIR        = HOME / ".openclaw"
 WORKSPACE     = OC_DIR / "workspace"
 WATCHDOG_DIR  = OC_DIR / "watchdog"
 LAZARUS_DIR   = WATCHDOG_DIR / "lazarus"
+CANONICAL_LAZARUS_DIR = OC_DIR / "lazarus"
 ARTIFACTS_DIR = LAZARUS_DIR / "artifacts"
 STAGING_DIR   = LAZARUS_DIR / "staging_restore"
 
 EVENTS_LOG    = LAZARUS_DIR / "lazarus_events.ndjson"
 REPORT_MD     = LAZARUS_DIR / "lazarus_report.md"
 BLUEPRINT     = LAZARUS_DIR / "recovery_blueprint.json"
+CANONICAL_BLUEPRINT = CANONICAL_LAZARUS_DIR / "recovery_blueprint.json"
 BACKUP_SH     = ARTIFACTS_DIR / "backup_local.sh"
 RESTORE_SH    = ARTIFACTS_DIR / "restore_dryrun.sh"
 
@@ -915,10 +924,112 @@ def safety_abort_if_violated():
         pass  # We just verify we never reference it for writing
 
 
+def _reset_run_state() -> None:
+    global _run_id, _events, _findings, _errors, _run_start
+    _run_id = f"lazarus-{int(time.time())}"
+    _events = []
+    _findings = []
+    _errors = 0
+    _run_start = time.time()
+
+
+def _parse_event_ts(raw: str) -> Optional[datetime]:
+    if not raw:
+        return None
+    ts = raw.strip()
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _emit_reb_event(event_type: str, severity: str, payload: Dict[str, Any]) -> None:
+    try:
+        reb_emit("lazarus", event_type, severity, payload)
+    except Exception as exc:
+        emit_event("ERROR", phase="reb_emit", error=str(exc), event_type=event_type)
+
+
+def _mirror_blueprint_for_agent911() -> Path:
+    try:
+        CANONICAL_LAZARUS_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(BLUEPRINT, CANONICAL_BLUEPRINT)
+        return CANONICAL_BLUEPRINT
+    except Exception as exc:
+        emit_event("ERROR", phase="watch_blueprint_mirror", error=str(exc))
+        return BLUEPRINT
+
+
+def run_watch() -> None:
+    severity_filter = ["HIGH", "CRITICAL"]
+    last_seen_dt = datetime.now(timezone.utc)
+
+    print("  → Watching REB (HIGH/CRITICAL) every 10s...", flush=True)
+    while True:
+        try:
+            events = reb_tail(severity_filter=severity_filter)
+        except Exception as exc:
+            emit_event("ERROR", phase="reb_tail", error=str(exc))
+            time.sleep(10)
+            continue
+        fresh: List[Tuple[datetime, Dict[str, Any]]] = []
+        for event in events:
+            event_ts = _parse_event_ts(str(event.get("ts", "")))
+            if not event_ts or event_ts <= last_seen_dt:
+                continue
+            fresh.append((event_ts, event))
+
+        fresh.sort(key=lambda item: item[0])
+        for event_ts, trigger_event in fresh:
+            if event_ts > last_seen_dt:
+                last_seen_dt = event_ts
+
+            if str(trigger_event.get("source", "")).lower() == "lazarus":
+                continue
+
+            trigger_event_type = str(trigger_event.get("event_type", "unknown"))
+            _reset_run_state()
+            _emit_reb_event(
+                "readiness_scan_start",
+                "INFO",
+                {
+                    "triggered_by": trigger_event_type,
+                    "trigger_source": trigger_event.get("source", "unknown"),
+                    "trigger_ts": trigger_event.get("ts"),
+                },
+            )
+            facts = run_scan()
+            blueprint = run_plan(facts)
+            mirrored_blueprint_path = _mirror_blueprint_for_agent911()
+            lz_score = int(blueprint.get("lz_score", blueprint.get("recovery_readiness_score", 0)))
+            readiness_severity = "INFO" if lz_score >= 70 else "HIGH"
+            _emit_reb_event(
+                "readiness_complete",
+                readiness_severity,
+                {
+                    "lz_score": lz_score,
+                    "blueprint_path": str(mirrored_blueprint_path),
+                    "triggered_by": trigger_event_type,
+                },
+            )
+            print(
+                f"  → Triggered by {trigger_event_type}: lz_score={lz_score} "
+                f"blueprint={mirrored_blueprint_path}",
+                flush=True,
+            )
+
+        time.sleep(10)
+
+
 # ─── Main ──────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Lazarus Protocol v1")
-    parser.add_argument("--mode", choices=["scan","plan","generate","validate","all"],
+    parser.add_argument("--mode", choices=["scan","plan","generate","validate","watch","all"],
                         default="all", help="Execution mode")
     parser.add_argument("--archive", help="Archive path for validate mode")
     args = parser.parse_args()
@@ -934,6 +1045,10 @@ def main():
     validate_result = None
 
     try:
+        if args.mode == "watch":
+            run_watch()
+            sys.exit(0)
+
         if args.mode in ("scan", "all"):
             print("  → Scanning environment...", flush=True)
             facts = run_scan()
